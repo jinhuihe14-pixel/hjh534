@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI智能用户召回系统</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.3.4/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f0f2f5;
+            color: #333;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 20px; font-weight: 600; }
+        .header .status { font-size: 13px; opacity: 0.9; }
+        .container {
+            display: flex;
+            height: calc(100vh - 60px);
+        }
+        .sidebar {
+            width: 200px;
+            background: #fff;
+            border-right: 1px solid #e8e8e8;
+            padding: 16px 0;
+        }
+        .sidebar-item {
+            padding: 12px 24px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #555;
+            transition: all 0.2s;
+        }
+        .sidebar-item:hover { background: #f5f5f5; color: #667eea; }
+        .sidebar-item.active {
+            background: #eef0ff;
+            color: #667eea;
+            border-left: 3px solid #667eea;
+        }
+        .main {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+        }
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+        .card-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: #222;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+        .stat-card .label {
+            font-size: 13px;
+            color: #888;
+            margin-bottom: 8px;
+        }
+        .stat-card .value {
+            font-size: 28px;
+            font-weight: 600;
+            color: #333;
+        }
+        .stat-card .value.warn { color: #ff6b6b; }
+        .stat-card .value.success { color: #51cf66; }
+        .stat-card .value.info { color: #4dabf7; }
+        .chart-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .chart-box {
+            height: 320px;
+            background: white;
+            border-radius: 8px;
+            padding: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 10px 12px;
+            text-align: left;
+            font-size: 13px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        th {
+            background: #fafafa;
+            font-weight: 600;
+            color: #555;
+        }
+        tr:hover { background: #f9f9f9; }
+        .tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        .tag-risk-high { background: #ffe3e3; color: #c92a2a; }
+        .tag-risk-medium { background: #fff3bf; color: #e67700; }
+        .tag-risk-low { background: #d3f9d8; color: #2b8a3e; }
+        .tag-vip { background: #fff0f6; color: #c2255c; }
+        .tag-cluster { background: #e7f5ff; color: #1971c2; }
+        .btn {
+            padding: 6px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            background: #667eea;
+            color: white;
+            transition: opacity 0.2s;
+        }
+        .btn:hover { opacity: 0.85; }
+        .btn-secondary { background: #868e96; }
+        .btn-success { background: #51cf66; }
+        .btn-sm { padding: 4px 12px; font-size: 12px; }
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        .page-btn {
+            padding: 6px 12px;
+            border: 1px solid #d9d9d9;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .page-btn.active { background: #667eea; color: white; border-color: #667eea; }
+        .page-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .filters {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .filter-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+        }
+        .filter-item select, .filter-item input {
+            padding: 5px 10px;
+            border: 1px solid #d9d9d9;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .recall-plan {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 12px;
+        }
+        .recall-plan h4 { margin-bottom: 8px; color: #495057; }
+        .recall-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+        .recall-item {
+            font-size: 13px;
+        }
+        .recall-item .label { color: #868e96; margin-bottom: 2px; }
+        .recall-item .val { color: #333; font-weight: 500; }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+        .init-banner {
+            background: linear-gradient(135deg, #ffd43b 0%, #fab005 100%);
+            color: #8d6207;
+            padding: 16px 24px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .detail-modal {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .detail-content {
+            background: white;
+            border-radius: 12px;
+            width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            padding: 24px;
+        }
+        .detail-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #eee;
+        }
+        .detail-header h3 { font-size: 18px; }
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: #999;
+        }
+        .detail-section {
+            margin-bottom: 16px;
+        }
+        .detail-section h4 {
+            font-size: 14px;
+            color: #667eea;
+            margin-bottom: 8px;
+        }
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            font-size: 13px;
+        }
+        .detail-grid .label { color: #868e96; }
+        .detail-grid .val { color: #333; }
+        .exp-card {
+            border: 1px solid #e8e8e8;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+        .exp-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .exp-name { font-size: 15px; font-weight: 600; }
+        .exp-status { font-size: 12px; padding: 2px 8px; border-radius: 4px; }
+        .status-running { background: #d3f9d8; color: #2b8a3e; }
+        .status-stopped { background: #f1f3f5; color: #868e96; }
+        .status-created { background: #fff3bf; color: #e67700; }
+        .exp-variants {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .variant-item {
+            flex: 1;
+            min-width: 120px;
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+        .variant-item .vname { font-weight: 600; margin-bottom: 4px; }
+        .variant-item .vrate { color: #51cf66; font-size: 14px; font-weight: 600; }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div class="header">
+        <h1>🎯 AI智能用户召回系统</h1>
+        <div class="status">
+            <span v-if="sysInfo.initialized">
+                ✅ 系统运行中 · {{ sysInfo.total_users }} 位用户
+            </span>
+            <span v-else>⏳ 系统未初始化</span>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="sidebar">
+            <div class="sidebar-item" :class="{active: currentPage=='dashboard'}" @click="currentPage='dashboard'">
+                📊 数据看板
+            </div>
+            <div class="sidebar-item" :class="{active: currentPage=='users'}" @click="currentPage='users'">
+                👥 用户管理
+            </div>
+            <div class="sidebar-item" :class="{active: currentPage=='clusters'}" @click="currentPage='clusters'">
+                🔍 用户分群
+            </div>
+            <div class="sidebar-item" :class="{active: currentPage=='recall'}" @click="currentPage='recall'">
+                🚀 召回策略
+            </div>
+            <div class="sidebar-item" :class="{active: currentPage=='ab'}" @click="currentPage='ab'">
+                🧪 A/B实验
+            </div>
+        </div>
+
+        <div class="main">
+            <div v-if="!sysInfo.initialized && currentPage!=='init'" class="init-banner">
+                <div>
+                    <strong>⚡ 系统未初始化</strong>
+                    <p style="margin-top: 4px; font-size: 13px;">请先初始化数据和模型，开始使用智能召回系统</p>
+                </div>
+                <button class="btn" @click="initSystem">立即初始化</button>
+            </div>
+
+            <!-- 数据看板 -->
+            <div v-if="currentPage=='dashboard'">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="label">总用户数</div>
+                        <div class="value info">{{ overview.total_users || '-' }}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">30天流失率</div>
+                        <div class="value warn">{{ overview.churn_rate }}%</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">VIP用户占比</div>
+                        <div class="value success">{{ overview.vip_rate }}%</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">平均付费金额</div>
+                        <div class="value">¥{{ overview.avg_pay_amount }}</div>
+                    </div>
+                </div>
+
+                <div class="chart-row">
+                    <div class="chart-box">
+                        <div class="card-title">用户风险等级分布</div>
+                        <div id="riskChart" style="height: 260px;"></div>
+                    </div>
+                    <div class="chart-box">
+                        <div class="card-title">用户群体分布</div>
+                        <div id="clusterChart" style="height: 260px;"></div>
+                    </div>
+                </div>
+
+                <div class="chart-row">
+                    <div class="chart-box">
+                        <div class="card-title">流失原因分布</div>
+                        <div id="reasonChart" style="height: 260px;"></div>
+                    </div>
+                    <div class="chart-box">
+                        <div class="card-title">TOP流失影响因素</div>
+                        <div id="featureChart" style="height: 260px;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 用户管理 -->
+            <div v-if="currentPage=='users'">
+                <div class="card">
+                    <div class="card-title">用户列表</div>
+                    <div class="filters">
+                        <div class="filter-item">
+                            <span>风险等级:</span>
+                            <select v-model="userFilter.risk" @change="loadUsers(1)">
+                                <option value="">全部</option>
+                                <option value="低风险">低风险</option>
+                                <option value="中风险">中风险</option>
+                                <option value="高风险">高风险</option>
+                                <option value="极高风险">极高风险</option>
+                            </select>
+                        </div>
+                        <div class="filter-item">
+                            <span>用户群体:</span>
+                            <select v-model="userFilter.cluster" @change="loadUsers(1)">
+                                <option value="">全部</option>
+                                <option v-for="c in clusterList" :key="c" :value="c">{{ c }}</option>
+                            </select>
+                        </div>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>用户ID</th>
+                                <th>年龄层</th>
+                                <th>城市</th>
+                                <th>VIP</th>
+                                <th>风险等级</th>
+                                <th>用户群体</th>
+                                <th>7日活跃</th>
+                                <th>总消费</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="u in userList" :key="u.user_id">
+                                <td>{{ u.user_hash }}</td>
+                                <td>{{ u.age_group }}</td>
+                                <td>{{ u.city_level }}</td>
+                                <td>
+                                    <span v-if="u.is_vip" class="tag tag-vip">VIP</span>
+                                    <span v-else>-</span>
+                                </td>
+                                <td>
+                                    <span class="tag" :class="'tag-risk-'+getRiskClass(u.risk_level)">
+                                        {{ u.risk_level }}
+                                    </span>
+                                </td>
+                                <td><span class="tag tag-cluster">{{ u.cluster_name }}</span></td>
+                                <td>{{ u.active_days_window }}天</td>
+                                <td>¥{{ u.total_pay_amount }}</td>
+                                <td>
+                                    <button class="btn btn-sm" @click="showUserDetail(u.user_id)">详情</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div class="pagination">
+                        <button class="page-btn" :disabled="userPage<=1" @click="loadUsers(userPage-1)">上一页</button>
+                        <span style="padding: 6px 12px; font-size: 13px;">第 {{ userPage }} 页 / 共 {{ Math.ceil(userTotal/userPageSize) }} 页</span>
+                        <button class="page-btn" :disabled="userPage>=Math.ceil(userTotal/userPageSize)" @click="loadUsers(userPage+1)">下一页</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 用户分群 -->
+            <div v-if="currentPage=='clusters'">
+                <div class="card">
+                    <div class="card-title">用户群体画像</div>
+                    <div id="clusterRadarChart" style="height: 400px;"></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">群体详情</div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>群体ID</th>
+                                <th>群体名称</th>
+                                <th>人数</th>
+                                <th>占比</th>
+                                <th>核心特征</th>
+                                <th>运营策略</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="c in clusters" :key="c.cluster_id">
+                                <td>{{ c.cluster_id }}</td>
+                                <td><strong>{{ c.cluster_name }}</strong></td>
+                                <td>{{ c.size }}人</td>
+                                <td>{{ (c.size_ratio*100).toFixed(1) }}%</td>
+                                <td style="max-width: 300px;">
+                                    <span v-for="(val, feat) in getTop3Features(c.top_features)" :key="feat" class="tag" style="margin: 2px; background: #f1f3f5; color: #495057;">
+                                        {{ feat }}
+                                    </span>
+                                </td>
+                                <td>{{ getClusterStrategy(c.cluster_name) }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 召回策略 -->
+            <div v-if="currentPage=='recall'">
+                <div class="card">
+                    <div class="card-title">批量召回任务</div>
+                    <div class="filters">
+                        <div class="filter-item">
+                            <span>召回数量:</span>
+                            <input type="number" v-model="recallTopN" style="width: 80px;" value="50">
+                        </div>
+                        <div class="filter-item">
+                            <span>风险筛选:</span>
+                            <select v-model="recallRiskFilter">
+                                <option value="">全部高风险</option>
+                                <option value="高风险,极高风险">高风险以上</option>
+                                <option value="极高风险">仅极高风险</option>
+                            </select>
+                        </div>
+                        <button class="btn" @click="generateBatchRecall">生成召回计划</button>
+                    </div>
+                    <div v-if="recallPlans.length > 0">
+                        <p style="margin-bottom: 12px; color: #666; font-size: 13px;">
+                            共生成 {{ recallPlans.length }} 个召回方案
+                        </p>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>用户ID</th>
+                                    <th>用户群体</th>
+                                    <th>风险等级</th>
+                                    <th>流失原因</th>
+                                    <th>召回文案</th>
+                                    <th>优惠券</th>
+                                    <th>最佳触达</th>
+                                    <th>优先级</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="p in recallPlans" :key="p.user_id">
+                                    <td>{{ p.user_id }}</td>
+                                    <td>{{ p.cluster_name }}</td>
+                                    <td><span class="tag" :class="'tag-risk-'+getRiskClass(p.risk_level)">{{ p.risk_level }}</span></td>
+                                    <td>{{ p.churn_reason }}</td>
+                                    <td style="max-width: 200px;">{{ p.push_content.primary }}</td>
+                                    <td>{{ p.coupon.name }}</td>
+                                    <td>{{ p.best_push_hour }}</td>
+                                    <td>{{ p.strategy_priority }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- A/B实验 -->
+            <div v-if="currentPage=='ab'">
+                <div class="card">
+                    <div class="card-title">A/B实验列表</div>
+                    <div v-for="exp in abExperiments" :key="exp.id" class="exp-card">
+                        <div class="exp-header">
+                            <div>
+                                <span class="exp-name">{{ exp.name }}</span>
+                                <span style="margin-left: 8px; font-size: 12px; color: #999;">{{ exp.description }}</span>
+                            </div>
+                            <div>
+                                <span class="exp-status" :class="'status-'+exp.status">
+                                    {{ exp.status=='running' ? '运行中' : exp.status=='stopped' ? '已停止' : '未开始' }}
+                                </span>
+                                <button v-if="exp.status!='running'" class="btn btn-sm btn-success" style="margin-left: 8px;" @click="startExperiment(exp.id)">开始</button>
+                                <button v-if="exp.status=='running'" class="btn btn-sm btn-secondary" style="margin-left: 8px;" @click="stopExperiment(exp.id)">停止</button>
+                            </div>
+                        </div>
+                        <div class="exp-variants">
+                            <div v-for="v in exp.variants" :key="v.id" class="variant-item">
+                                <div class="vname">{{ v.name }}</div>
+                                <div style="color: #868e96;">权重: {{ v.traffic_weight }}</div>
+                                <div v-if="abResults[exp.id]" class="vrate">
+                                    转化率: {{ getVariantRate(exp.id, v.id) }}%
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div v-if="showDetail" class="detail-modal" @click.self="showDetail=false">
+        <div class="detail-content">
+            <div class="detail-header">
+                <h3>用户详情 - {{ userDetail.user_id }}</h3>
+                <button class="close-btn" @click="showDetail=false">×</button>
+            </div>
+            <div v-if="userDetail.profile">
+                <div class="detail-section">
+                    <h4>📋 基本信息</h4>
+                    <div class="detail-grid">
+                        <div><span class="label">年龄层: </span><span class="val">{{ userDetail.profile.age_group }}</span></div>
+                        <div><span class="label">城市等级: </span><span class="val">{{ userDetail.profile.city_level }}</span></div>
+                        <div><span class="label">注册天数: </span><span class="val">{{ userDetail.profile.register_days }}天</span></div>
+                        <div><span class="label">是否VIP: </span><span class="val">{{ userDetail.profile.is_vip ? '是' : '否' }}</span></div>
+                        <div><span class="label">总消费: </span><span class="val">¥{{ userDetail.profile.total_pay_amount }}</span></div>
+                        <div><span class="label">内容偏好: </span><span class="val">{{ userDetail.profile.prefer_categories.join('、') }}</span></div>
+                    </div>
+                </div>
+                <div class="detail-section">
+                    <h4>📊 行为特征</h4>
+                    <div class="detail-grid">
+                        <div><span class="label">7日活跃天数: </span><span class="val">{{ userDetail.behavior.active_days_window }}天</span></div>
+                        <div><span class="label">平均会话时长: </span><span class="val">{{ userDetail.behavior.avg_session_duration }}秒</span></div>
+                        <div><span class="label">7日浏览量: </span><span class="val">{{ userDetail.behavior.total_browse }}</span></div>
+                        <div><span class="label">7日点击量: </span><span class="val">{{ userDetail.behavior.total_click }}</span></div>
+                        <div><span class="label">点击率: </span><span class="val">{{ (userDetail.behavior.click_through_rate*100).toFixed(2) }}%</span></div>
+                        <div><span class="label">互动总量: </span><span class="val">{{ userDetail.behavior.total_interaction }}</span></div>
+                        <div><span class="label">近7天会话: </span><span class="val">{{ userDetail.behavior.sessions_7d }}</span></div>
+                        <div><span class="label">活跃度衰减: </span><span class="val">{{ (userDetail.behavior.decay_ratio*100).toFixed(1) }}%</span></div>
+                    </div>
+                </div>
+                <div class="detail-section">
+                    <h4>⚠️ 流失预测</h4>
+                    <div class="detail-grid">
+                        <div><span class="label">30天流失概率: </span><span class="val" style="color: #ff6b6b;">{{ (userDetail.churn_prediction.churn_prob_30d*100).toFixed(2) }}%</span></div>
+                        <div><span class="label">风险等级: </span><span class="val">{{ userDetail.churn_prediction.risk_level }}</span></div>
+                        <div><span class="label">流失归因: </span><span class="val">{{ userDetail.churn_prediction.churn_reason }}</span></div>
+                        <div><span class="label">距上次活跃: </span><span class="val">{{ userDetail.churn_prediction.days_since_last_active }}天</span></div>
+                        <div><span class="label">用户分群: </span><span class="val">{{ userDetail.cluster.cluster_name }}</span></div>
+                    </div>
+                </div>
+                <div class="detail-section">
+                    <h4>🚀 召回方案</h4>
+                    <div class="recall-plan">
+                        <div class="recall-grid">
+                            <div class="recall-item">
+                                <div class="label">主推文案</div>
+                                <div class="val">{{ recallPlan.push_content && recallPlan.push_content.primary }}</div>
+                            </div>
+                            <div class="recall-item">
+                                <div class="label">优惠券</div>
+                                <div class="val">{{ recallPlan.coupon && recallPlan.coupon.name }} ({{ recallPlan.coupon && recallPlan.coupon.value }})</div>
+                            </div>
+                            <div class="recall-item">
+                                <div class="label">最佳触达时段</div>
+                                <div class="val">{{ recallPlan.best_push_hour }}</div>
+                            </div>
+                            <div class="recall-item">
+                                <div class="label">策略优先级</div>
+                                <div class="val">{{ recallPlan.strategy_priority }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div v-else class="loading">加载中...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+const { createApp, ref, reactive, onMounted, nextTick, computed } = Vue;
+
+createApp({
+    setup() {
+        const currentPage = ref('dashboard');
+        const sysInfo = reactive({ initialized: false, total_users: 0 });
+        const overview = reactive({});
+        const churnStats = reactive({});
+
+        const userList = ref([]);
+        const userPage = ref(1);
+        const userPageSize = 20;
+        const userTotal = ref(0);
+        const userFilter = reactive({ risk: '', cluster: '' });
+        const clusterList = ref([]);
+
+        const clusters = ref([]);
+        const recallPlans = ref([]);
+        const recallTopN = ref(50);
+        const recallRiskFilter = ref('高风险,极高风险');
+
+        const showDetail = ref(false);
+        const userDetail = ref({});
+        const recallPlan = ref({});
+
+        const abExperiments = ref([]);
+        const abResults = reactive({});
+
+        let riskChart = null, clusterChart = null, reasonChart = null, featureChart = null, radarChart = null;
+
+        const api = async (path, method = 'GET', body = null) => {
+            const opts = { method };
+            if (body) {
+                opts.headers = { 'Content-Type': 'application/json' };
+                opts.body = JSON.stringify(body);
+            }
+            const res = await fetch(path, opts);
+            return await res.json();
+        };
+
+        const initSystem = async () => {
+            if (!confirm('确定初始化系统吗？将生成模拟数据并训练模型，大约需要10-30秒。')) return;
+            alert('开始初始化，请稍候...');
+            const res = await api('/api/system/init?n_users=2000&days=60', 'POST');
+            if (res.status === 'success') {
+                alert('初始化成功！');
+                await loadSystemStatus();
+                await loadOverview();
+                await loadChurnStats();
+                initCharts();
+            }
+        };
+
+        const loadSystemStatus = async () => {
+            try {
+                const res = await api('/api/system/status');
+                Object.assign(sysInfo, res);
+            } catch (e) { console.error(e); }
+        };
+
+        const loadOverview = async () => {
+            try {
+                const res = await api('/api/statistics/overview');
+                Object.assign(overview, res);
+                clusterList.value = Object.keys(res.cluster_distribution || {});
+                nextTick(() => {
+                    renderRiskChart();
+                    renderClusterChart();
+                    renderReasonChart();
+                });
+            } catch (e) { console.error(e); }
+        };
+
+        const loadChurnStats = async () => {
+            try {
+                const res = await api('/api/statistics/churn');
+                Object.assign(churnStats, res);
+                nextTick(() => renderFeatureChart());
+            } catch (e) { console.error(e); }
+        };
+
+        const loadUsers = async (page = 1) => {
+            userPage.value = page;
+            let url = `/api/users?page=${page}&page_size=${userPageSize}`;
+            if (userFilter.risk) url += `&risk_level=${encodeURIComponent(userFilter.risk)}`;
+            if (userFilter.cluster) url += `&cluster=${encodeURIComponent(userFilter.cluster)}`;
+            const res = await api(url);
+            userList.value = res.data;
+            userTotal.value = res.total;
+        };
+
+        const showUserDetail = async (userId) => {
+            userDetail.value = {};
+            recallPlan.value = {};
+            showDetail.value = true;
+            try {
+                userDetail.value = await api(`/api/users/${userId}`);
+                recallPlan.value = await api(`/api/users/${userId}/recall`);
+            } catch (e) { console.error(e); }
+        };
+
+        const loadClusters = async () => {
+            const res = await api('/api/clusters');
+            clusters.value = res;
+            nextTick(() => renderRadarChart());
+        };
+
+        const generateBatchRecall = async () => {
+            let url = `/api/recall/batch?top_n=${recallTopN.value}`;
+            if (recallRiskFilter.value) url += `&risk_filter=${encodeURIComponent(recallRiskFilter.value)}`;
+            const res = await api(url, 'POST');
+            recallPlans.value = res.plans;
+        };
+
+        const loadABExperiments = async () => {
+            const res = await api('/api/ab/experiments');
+            abExperiments.value = res.experiments;
+            for (const exp of res.experiments) {
+                if (exp.status === 'running' || exp.status === 'stopped') {
+                    try {
+                        const r = await api(`/api/ab/experiments/${exp.id}/results`);
+                        abResults[exp.id] = r.results;
+                    } catch (e) {}
+                }
+            }
+        };
+
+        const startExperiment = async (expId) => {
+            await api(`/api/ab/experiments/${expId}/start`, 'POST');
+            await loadABExperiments();
+        };
+
+        const stopExperiment = async (expId) => {
+            await api(`/api/ab/experiments/${expId}/stop`, 'POST');
+            await loadABExperiments();
+        };
+
+        const getVariantRate = (expId, variantId) => {
+            const results = abResults[expId];
+            if (!results) return '-';
+            const v = results.find(r => r.variant_id === variantId);
+            return v ? v.conversion_rate : '-';
+        };
+
+        const getRiskClass = (level) => {
+            if (level === '高风险' || level === '极高风险') return 'high';
+            if (level === '中风险') return 'medium';
+            return 'low';
+        };
+
+        const getTop3Features = (features) => {
+            if (!features) return {};
+            const entries = Object.entries(features).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 3);
+            return Object.fromEntries(entries);
+        };
+
+        const getClusterStrategy = (name) => {
+            const map = {
+                '高价值活跃用户': '高端内容 + VIP专属福利',
+                '潜力付费用户': '会员优惠 + 精选内容',
+                '普通活跃用户': '个性化推荐 + 积分激励',
+                '轻度沉睡用户': '定向推送 + 回归礼包',
+                '深度流失用户': '大额优惠 + 兴趣内容',
+                '新用户': '新手引导 + 新人礼包',
+            };
+            return map[name] || '常规运营';
+        };
+
+        const initCharts = () => {
+            if (document.getElementById('riskChart')) {
+                riskChart = echarts.init(document.getElementById('riskChart'));
+            }
+            if (document.getElementById('clusterChart')) {
+                clusterChart = echarts.init(document.getElementById('clusterChart'));
+            }
+            if (document.getElementById('reasonChart')) {
+                reasonChart = echarts.init(document.getElementById('reasonChart'));
+            }
+            if (document.getElementById('featureChart')) {
+                featureChart = echarts.init(document.getElementById('featureChart'));
+            }
+            if (document.getElementById('clusterRadarChart')) {
+                radarChart = echarts.init(document.getElementById('clusterRadarChart'));
+            }
+            window.addEventListener('resize', () => {
+                riskChart && riskChart.resize();
+                clusterChart && clusterChart.resize();
+                reasonChart && reasonChart.resize();
+                featureChart && featureChart.resize();
+                radarChart && radarChart.resize();
+            });
+        };
+
+        const renderRiskChart = () => {
+            if (!riskChart || !overview.risk_distribution) return;
+            const data = Object.entries(overview.risk_distribution).map(([name, value]) => ({ name, value }));
+            riskChart.setOption({
+                tooltip: { trigger: 'item' },
+                series: [{
+                    type: 'pie',
+                    radius: ['40%', '70%'],
+                    avoidLabelOverlap: false,
+                    label: { show: true, formatter: '{b}\n{d}%' },
+                    data: data,
+                    color: ['#51cf66', '#ffd43b', '#ffa94d', '#ff6b6b']
+                }]
+            });
+        };
+
+        const renderClusterChart = () => {
+            if (!clusterChart || !overview.cluster_distribution) return;
+            const data = Object.entries(overview.cluster_distribution)
+                .sort((a, b) => b[1] - a[1])
+                .map(([name, value]) => ({ name, value }));
+            clusterChart.setOption({
+                tooltip: { trigger: 'item' },
+                xAxis: { type: 'value' },
+                yAxis: { type: 'category', data: data.map(d => d.name) },
+                series: [{
+                    type: 'bar',
+                    data: data.map(d => d.value),
+                    itemStyle: { color: '#667eea', borderRadius: [0, 4, 4, 0] }
+                }]
+            });
+        };
+
+        const renderReasonChart = () => {
+            if (!reasonChart || !overview.churn_reason_distribution) return;
+            const data = Object.entries(overview.churn_reason_distribution).map(([name, value]) => ({ name, value }));
+            reasonChart.setOption({
+                tooltip: { trigger: 'item' },
+                series: [{
+                    type: 'pie',
+                    radius: '70%',
+                    label: { show: true, formatter: '{b}: {c}' },
+                    data: data,
+                    color: ['#4dabf7', '#69db7c', '#ffd43b', '#f06595']
+                }]
+            });
+        };
+
+        const renderFeatureChart = () => {
+            if (!featureChart || !churnStats.top_feature_importance) return;
+            const data = Object.entries(churnStats.top_feature_importance)
+                .sort((a, b) => a[1] - b[1])
+                .slice(-10);
+            featureChart.setOption({
+                tooltip: { trigger: 'axis' },
+                xAxis: { type: 'value' },
+                yAxis: { type: 'category', data: data.map(d => d[0]) },
+                series: [{
+                    type: 'bar',
+                    data: data.map(d => d[1]),
+                    itemStyle: { color: '#764ba2', borderRadius: [0, 4, 4, 0] }
+                }]
+            });
+        };
+
+        const renderRadarChart = () => {
+            if (!radarChart || clusters.value.length === 0) return;
+            const feats = ['total_interaction', 'total_browse', 'avg_session_duration', 'total_pay_amount', 'active_days_window', 'decay_ratio'];
+            const maxVals = {};
+            feats.forEach(f => {
+                maxVals[f] = Math.max(...clusters.value.map(c => Math.abs(c.top_features[f] || 0)), 1);
+            });
+            const indicators = feats.map(f => ({
+                name: f,
+                max: Math.max(...clusters.value.map(c => {
+                    const mean = c.top_features[f] || 0;
+                    return Math.abs(mean);
+                })) * 1.2 || 1
+            }));
+            const seriesData = clusters.value.map(c => ({
+                name: c.cluster_name,
+                value: feats.map(f => Math.abs(c.top_features[f] || 0))
+            }));
+            radarChart.setOption({
+                tooltip: {},
+                legend: { data: clusters.value.map(c => c.cluster_name), bottom: 0 },
+                radar: {
+                    indicator: indicators,
+                    radius: '65%'
+                },
+                series: [{
+                    type: 'radar',
+                    data: seriesData
+                }]
+            });
+        };
+
+        onMounted(async () => {
+            await loadSystemStatus();
+            if (sysInfo.initialized) {
+                initCharts();
+                await loadOverview();
+                await loadChurnStats();
+                await loadClusters();
+                await loadABExperiments();
+            }
+        });
+
+        return {
+            currentPage, sysInfo, overview, churnStats,
+            userList, userPage, userPageSize, userTotal, userFilter, clusterList,
+            clusters, recallPlans, recallTopN, recallRiskFilter,
+            showDetail, userDetail, recallPlan,
+            abExperiments, abResults,
+            initSystem, loadUsers, showUserDetail, loadClusters,
+            generateBatchRecall, startExperiment, stopExperiment,
+            getVariantRate, getRiskClass, getTop3Features, getClusterStrategy
+        };
+    }
+}).mount('#app');
+</script>
+</body>
+</html>

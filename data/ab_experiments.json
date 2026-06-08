@@ -1,0 +1,64 @@
+[
+  {
+    "id": "2783301e",
+    "name": "召回文案效果测试",
+    "description": "测试不同召回推送文案的转化效果",
+    "variants": [
+      {
+        "id": "control",
+        "name": "对照组-通用文案",
+        "traffic_weight": 1.0,
+        "config": {}
+      },
+      {
+        "id": "personalized",
+        "name": "实验组-个性化文案",
+        "traffic_weight": 1.0,
+        "config": {}
+      },
+      {
+        "id": "urgency",
+        "name": "实验组-紧迫感文案",
+        "traffic_weight": 1.0,
+        "config": {}
+      }
+    ],
+    "status": "created",
+    "created_at": "2026-06-07T20:25:17.975421",
+    "started_at": null,
+    "ended_at": null,
+    "metrics": {},
+    "user_assignments": {}
+  },
+  {
+    "id": "867e3ecd",
+    "name": "优惠券类型测试",
+    "description": "测试不同优惠券类型的召回转化",
+    "variants": [
+      {
+        "id": "no_coupon",
+        "name": "对照组-无优惠券",
+        "traffic_weight": 1.0,
+        "config": {}
+      },
+      {
+        "id": "cash",
+        "name": "实验组-现金券",
+        "traffic_weight": 1.0,
+        "config": {}
+      },
+      {
+        "id": "vip",
+        "name": "实验组-VIP折扣",
+        "traffic_weight": 1.0,
+        "config": {}
+      }
+    ],
+    "status": "created",
+    "created_at": "2026-06-07T20:25:17.995602",
+    "started_at": null,
+    "ended_at": null,
+    "metrics": {},
+    "user_assignments": {}
+  }
+]
