@@ -321,6 +321,15 @@
             <div class="sidebar-item" :class="{active: currentPage=='ab'}" @click="currentPage='ab'">
                 🧪 A/B实验
             </div>
+            <div class="sidebar-item" :class="{active: currentPage=='recommend'}" @click="currentPage='recommend'">
+                🎯 内容推荐
+            </div>
+            <div class="sidebar-item" :class="{active: currentPage=='attribution'}" @click="currentPage='attribution'">
+                📈 效果分析
+            </div>
+            <div class="sidebar-item" :class="{active: currentPage=='iteration'}" @click="currentPage='iteration'">
+                🔄 模型迭代
+            </div>
         </div>
 
         <div class="main">
@@ -564,6 +573,408 @@
                     </div>
                 </div>
             </div>
+
+            <!-- 内容推荐 -->
+            <div v-if="currentPage=='recommend'">
+                <div class="card">
+                    <div class="card-title">个性化内容推荐</div>
+                    <div class="filters">
+                        <div class="filter-item">
+                            <span>推荐数量:</span>
+                            <input type="number" v-model="recommendCount" style="width: 60px;" value="5">
+                        </div>
+                        <div class="filter-item">
+                            <span>风险筛选:</span>
+                            <select v-model="recommendRiskFilter">
+                                <option value="">全部高风险</option>
+                                <option value="高风险,极高风险">高风险以上</option>
+                                <option value="极高风险">仅极高风险</option>
+                            </select>
+                        </div>
+                        <button class="btn" @click="generateBatchRecommend">生成推荐</button>
+                    </div>
+                    <div v-if="recommendResults.length > 0">
+                        <p style="margin-bottom: 12px; color: #666; font-size: 13px;">
+                            共生成 {{ recommendResults.length }} 个推荐方案
+                        </p>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>用户ID</th>
+                                    <th>推送策略</th>
+                                    <th>流失原因</th>
+                                    <th>主推文案</th>
+                                    <th>优惠券</th>
+                                    <th>推荐内容数</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="r in recommendResults.slice(0, 20)" :key="r.user_id">
+                                    <td>{{ r.user_id }}</td>
+                                    <td><span class="tag tag-cluster">{{ r.strategy_name }}</span></td>
+                                    <td>{{ r.churn_reason }}</td>
+                                    <td style="max-width: 250px;">{{ r.push_content.primary }}</td>
+                                    <td>{{ r.coupon ? r.coupon.name : '无' }}</td>
+                                    <td>{{ r.recommendations.length }}条</td>
+                                    <td>
+                                        <button class="btn btn-sm" @click="showRecommendDetail(r)">详情</button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">推荐配置</div>
+                    <div class="filters">
+                        <div class="filter-item">
+                            <span>最低质量分:</span>
+                            <input type="number" step="0.1" v-model="recommendConfig.min_quality_score" style="width: 60px;">
+                        </div>
+                        <div class="filter-item">
+                            <span>最大推荐数:</span>
+                            <input type="number" v-model="recommendConfig.max_recommend_count" style="width: 60px;">
+                        </div>
+                        <button class="btn btn-sm" @click="saveRecommendConfig">保存配置</button>
+                    </div>
+                    <div style="margin-top: 16px;">
+                        <h4 style="font-size: 14px; margin-bottom: 8px;">屏蔽词管理</h4>
+                        <div class="filter-item">
+                            <input type="text" v-model="newBlockedWord" placeholder="输入屏蔽词" style="width: 120px;">
+                            <button class="btn btn-sm" @click="addBlockedWord">添加</button>
+                        </div>
+                        <div style="margin-top: 8px;">
+                            <span v-for="word in recommendConfig.blocked_words" :key="word" class="tag" style="margin: 2px; background: #ffe3e3; color: #c92a2a; cursor: pointer;" @click="removeBlockedWord(word)">
+                                {{ word }} ×
+                            </span>
+                        </div>
+                    </div>
+                    <div style="margin-top: 16px;">
+                        <h4 style="font-size: 14px; margin-bottom: 8px;">屏蔽分类</h4>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <span v-for="cat in allCategories" :key="cat" class="tag" :style="recommendConfig.blocked_categories.includes(cat) ? 'background: #ffe3e3; color: #c92a2a;' : 'background: #f1f3f5; color: #495057;'" style="cursor: pointer;" @click="toggleBlockedCategory(cat)">
+                                {{ cat }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">内容库</div>
+                    <div class="filters">
+                        <div class="filter-item">
+                            <span>分类筛选:</span>
+                            <select v-model="contentLibraryCategory" @change="loadContentLibrary">
+                                <option value="">全部分类</option>
+                                <option v-for="cat in allCategories" :key="cat" :value="cat">{{ cat }}</option>
+                            </select>
+                        </div>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>标题</th>
+                                <th>分类</th>
+                                <th>作者</th>
+                                <th>主题</th>
+                                <th>质量分</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="c in contentLibrary" :key="c.content_id">
+                                <td style="max-width: 300px;">{{ c.title }}</td>
+                                <td><span class="tag tag-cluster">{{ c.category }}</span></td>
+                                <td>{{ c.author }}</td>
+                                <td>{{ c.topic }}</td>
+                                <td>{{ (c.quality_score * 100).toFixed(0) }}%</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 效果分析 -->
+            <div v-if="currentPage=='attribution'">
+                <div v-if="attributionOverview.total_recalls == 0" class="card">
+                    <div class="card-title">召回效果分析</div>
+                    <p style="color: #888; margin-bottom: 16px;">暂无召回效果数据，点击下方按钮生成模拟数据进行体验</p>
+                    <button class="btn" @click="generateMockAttribution">生成模拟数据</button>
+                </div>
+
+                <div v-if="attributionOverview.total_recalls > 0">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="label">总召回数</div>
+                            <div class="value info">{{ attributionOverview.total_recalls }}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="label">复访率</div>
+                            <div class="value success">{{ attributionOverview.revisit_rate }}%</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="label">付费转化率</div>
+                            <div class="value">{{ attributionOverview.pay_conversion_rate }}%</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="label">再流失率</div>
+                            <div class="value warn">{{ attributionOverview.re_churn_rate }}%</div>
+                        </div>
+                    </div>
+
+                    <div class="chart-row">
+                        <div class="chart-box">
+                            <div class="card-title">召回效果趋势</div>
+                            <div id="trendChart" style="height: 260px;"></div>
+                        </div>
+                        <div class="chart-box">
+                            <div class="card-title">再流失原因分布</div>
+                            <div id="rechurnReasonChart" style="height: 260px;"></div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-title">多维度分析</div>
+                        <div class="filters">
+                            <div class="filter-item">
+                                <span>分析维度:</span>
+                                <select v-model="attributionDimension" @change="loadDimensionAnalysis">
+                                    <option value="risk_level">按风险等级</option>
+                                    <option value="cluster_name">按用户群体</option>
+                                    <option value="push_channel">按触达渠道</option>
+                                    <option value="content_type">按内容类型</option>
+                                    <option value="churn_reason">按流失原因</option>
+                                </select>
+                            </div>
+                        </div>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>分组</th>
+                                    <th>召回数</th>
+                                    <th>复访率</th>
+                                    <th>二次互动率</th>
+                                    <th>付费转化率</th>
+                                    <th>平均停留</th>
+                                    <th>再流失率</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="item in dimensionAnalysis" :key="item.group">
+                                    <td><strong>{{ item.group }}</strong></td>
+                                    <td>{{ item.total_recalls }}</td>
+                                    <td><span :style="{color: item.revisit_rate > 30 ? '#51cf66' : '#ff6b6b'}">{{ item.revisit_rate }}%</span></td>
+                                    <td>{{ item.re_interaction_rate }}%</td>
+                                    <td>{{ item.pay_conversion_rate }}%</td>
+                                    <td>{{ item.avg_stay_duration }}秒</td>
+                                    <td><span :style="{color: item.re_churn_rate > 30 ? '#ff6b6b' : '#51cf66'}">{{ item.re_churn_rate }}%</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-title">
+                            AI优化建议报告
+                            <button class="btn btn-sm" style="float: right;" @click="loadOptimizationReport">刷新报告</button>
+                        </div>
+                        <div v-if="optimizationReport.optimization_suggestions">
+                            <div style="margin-bottom: 12px; font-size: 13px; color: #666;">
+                                共 {{ optimizationReport.summary.total_suggestions }} 条建议，
+                                其中高优先级 {{ optimizationReport.summary.high_priority_count }} 条，
+                                中优先级 {{ optimizationReport.summary.medium_priority_count }} 条
+                            </div>
+                            <div v-for="(s, idx) in optimizationReport.optimization_suggestions" :key="idx" style="padding: 12px; background: #f8f9fa; border-radius: 6px; margin-bottom: 10px;">
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                                    <span class="tag" :style="s.priority == '高' ? 'background: #ffe3e3; color: #c92a2a;' : 'background: #fff3bf; color: #e67700;'">
+                                        {{ s.priority }}优先级
+                                    </span>
+                                    <strong>{{ s.category }}</strong>
+                                </div>
+                                <div style="font-size: 13px; color: #333; margin-bottom: 4px;">{{ s.suggestion }}</div>
+                                <div style="font-size: 12px; color: #51cf66;">预期效果: {{ s.expected_impact }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 模型迭代 -->
+            <div v-if="currentPage=='iteration'">
+                <div class="card">
+                    <div class="card-title">
+                        样本标注
+                        <button class="btn btn-sm" style="float: right;" @click="loadAnnotations">刷新</button>
+                    </div>
+                    <div class="filters">
+                        <div class="filter-item">
+                            <span>标注类型:</span>
+                            <select v-model="annotationFilter.type" @change="loadAnnotations">
+                                <option value="">全部</option>
+                                <option v-for="t in annotationTypes" :key="t.type" :value="t.type">{{ t.type }}</option>
+                            </select>
+                        </div>
+                        <div class="filter-item">
+                            <span>使用状态:</span>
+                            <select v-model="annotationFilter.used" @change="loadAnnotations">
+                                <option value="">全部</option>
+                                <option value="unused">未使用</option>
+                                <option value="used">已使用</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="margin-bottom: 12px; font-size: 13px; color: #666;">
+                        共 {{ annotationStats.total || 0 }} 条标注，
+                        未使用 {{ annotationStats.by_used ? annotationStats.by_used.unused : 0 }} 条
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>用户ID</th>
+                                <th>标注类型</th>
+                                <th>标签</th>
+                                <th>备注</th>
+                                <th>操作人</th>
+                                <th>状态</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="ann in annotations" :key="ann.annotation_id">
+                                <td>{{ ann.user_id }}</td>
+                                <td>{{ ann.annotation_type }}</td>
+                                <td>{{ ann.label }}</td>
+                                <td style="max-width: 150px;">{{ ann.note || '-' }}</td>
+                                <td>{{ ann.operator }}</td>
+                                <td>
+                                    <span class="tag" :style="ann.is_used_for_training ? 'background: #d3f9d8; color: #2b8a3e;' : 'background: #fff3bf; color: #e67700;'">
+                                        {{ ann.is_used_for_training ? '已使用' : '未使用' }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm btn-secondary" @click="deleteAnnotation(ann.annotation_id)">删除</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div style="margin-top: 16px;">
+                        <h4 style="font-size: 14px; margin-bottom: 8px;">添加标注</h4>
+                        <div class="filters">
+                            <div class="filter-item">
+                                <span>用户ID:</span>
+                                <input type="text" v-model="newAnnotation.user_id" placeholder="user_00001" style="width: 100px;">
+                            </div>
+                            <div class="filter-item">
+                                <span>类型:</span>
+                                <select v-model="newAnnotation.type">
+                                    <option v-for="t in annotationTypes" :key="t.type" :value="t.type">{{ t.type }}</option>
+                                </select>
+                            </div>
+                            <div class="filter-item">
+                                <span>标签:</span>
+                                <input type="text" v-model="newAnnotation.label" placeholder="false_positive" style="width: 120px;">
+                            </div>
+                            <div class="filter-item">
+                                <span>备注:</span>
+                                <input type="text" v-model="newAnnotation.note" placeholder="可选" style="width: 120px;">
+                            </div>
+                            <button class="btn btn-sm" @click="addAnnotation">添加</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">策略白名单</div>
+                    <div class="filters">
+                        <div class="filter-item">
+                            <span>用户ID:</span>
+                            <input type="text" v-model="newWhitelistUserId" placeholder="user_00001" style="width: 100px;">
+                        </div>
+                        <div class="filter-item">
+                            <span>原因:</span>
+                            <input type="text" v-model="newWhitelistReason" placeholder="高价值用户" style="width: 150px;">
+                        </div>
+                        <button class="btn btn-sm" @click="addWhitelist">添加白名单</button>
+                    </div>
+                    <div style="margin: 12px 0; font-size: 13px; color: #666;">
+                        活跃白名单用户: {{ whitelistStats.active || 0 }} 人
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>用户ID</th>
+                                <th>原因</th>
+                                <th>操作人</th>
+                                <th>添加时间</th>
+                                <th>状态</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="item in whitelist" :key="item.user_id">
+                                <td>{{ item.user_id }}</td>
+                                <td>{{ item.reason || '-' }}</td>
+                                <td>{{ item.operator }}</td>
+                                <td style="font-size: 12px;">{{ item.create_time ? item.create_time.slice(0, 10) : '' }}</td>
+                                <td>
+                                    <span class="tag" :style="item.is_active ? 'background: #d3f9d8; color: #2b8a3e;' : 'background: #f1f3f5; color: #868e96;'">
+                                        {{ item.is_active ? '活跃' : '已移除' }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <button v-if="item.is_active" class="btn btn-sm btn-secondary" @click="removeWhitelist(item.user_id)">移除</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">
+                        模型增量更新
+                        <button class="btn btn-sm btn-success" style="float: right;" @click="runIncrementalUpdate">执行增量更新</button>
+                    </div>
+                    <p style="font-size: 13px; color: #666; margin-bottom: 12px;">
+                        使用人工标注的数据对流失预测模型进行轻量化增量更新，持续优化模型效果
+                    </p>
+                    <div v-if="incrementalResult">
+                        <div v-if="incrementalResult.success" style="padding: 12px; background: #d3f9d8; border-radius: 6px;">
+                            <div style="color: #2b8a3e; font-weight: 600; margin-bottom: 8px;">✅ 增量更新成功</div>
+                            <div style="font-size: 13px;">
+                                <div>使用标注数据: {{ incrementalResult.annotation_count }} 条</div>
+                                <div>学习率: {{ incrementalResult.learning_rate ? incrementalResult.learning_rate.toFixed(3) : '-' }}</div>
+                                <div>准确率变化: {{ incrementalResult.improvement ? (incrementalResult.improvement.accuracy > 0 ? '+' : '') + (incrementalResult.improvement.accuracy * 100).toFixed(2) + '%' : '-' }}</div>
+                                <div>F1变化: {{ incrementalResult.improvement ? (incrementalResult.improvement.f1 > 0 ? '+' : '') + (incrementalResult.improvement.f1 * 100).toFixed(2) + '%' : '-' }}</div>
+                            </div>
+                        </div>
+                        <div v-else style="padding: 12px; background: #ffe3e3; border-radius: 6px; color: #c92a2a;">
+                            {{ incrementalResult.message }}
+                        </div>
+                    </div>
+                    <div style="margin-top: 16px;">
+                        <h4 style="font-size: 14px; margin-bottom: 8px;">更新历史</h4>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>更新时间</th>
+                                    <th>更新类型</th>
+                                    <th>标注数</th>
+                                    <th>操作人</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="log in updateHistory" :key="log.update_id">
+                                    <td style="font-size: 12px;">{{ log.update_time ? log.update_time.slice(0, 16) : '' }}</td>
+                                    <td>{{ log.update_type }}</td>
+                                    <td>{{ log.annotation_count }}</td>
+                                    <td>{{ log.operator }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -667,6 +1078,42 @@ createApp({
         const abResults = reactive({});
 
         let riskChart = null, clusterChart = null, reasonChart = null, featureChart = null, radarChart = null;
+        let trendChart = null, rechurnReasonChart = null;
+
+        const recommendCount = ref(5);
+        const recommendRiskFilter = ref('高风险,极高风险');
+        const recommendResults = ref([]);
+        const recommendConfig = reactive({
+            blocked_words: [],
+            blocked_categories: [],
+            min_quality_score: 0.5,
+            max_recommend_count: 5,
+            enable_personalized: true,
+        });
+        const newBlockedWord = ref('');
+        const allCategories = ref([]);
+        const contentLibrary = ref([]);
+        const contentLibraryCategory = ref('');
+
+        const attributionOverview = reactive({ total_recalls: 0 });
+        const attributionDimension = ref('risk_level');
+        const dimensionAnalysis = ref([]);
+        const rechurnReasons = ref([]);
+        const optimizationReport = reactive({});
+
+        const annotations = ref([]);
+        const annotationTypes = ref([]);
+        const annotationStats = reactive({});
+        const annotationFilter = reactive({ type: '', used: '' });
+        const newAnnotation = reactive({ user_id: '', type: 'churn_prediction_error', label: '', note: '' });
+
+        const whitelist = ref([]);
+        const whitelistStats = reactive({});
+        const newWhitelistUserId = ref('');
+        const newWhitelistReason = ref('');
+
+        const incrementalResult = ref(null);
+        const updateHistory = ref([]);
 
         const api = async (path, method = 'GET', body = null) => {
             const opts = { method };
@@ -928,6 +1375,282 @@ createApp({
             });
         };
 
+        const generateBatchRecommend = async () => {
+            let url = `/api/recommend/batch?top_n=100&count=${recommendCount.value}`;
+            if (recommendRiskFilter.value) {
+                url += `&risk_filter=${encodeURIComponent(recommendRiskFilter.value)}`;
+            }
+            const res = await api(url, 'POST');
+            recommendResults.value = res.recommendations || [];
+        };
+
+        const showRecommendDetail = (rec) => {
+            alert(
+                `用户: ${rec.user_id}\n` +
+                `策略: ${rec.strategy_name}\n` +
+                `主推文案: ${rec.push_content.primary}\n` +
+                `推荐内容数: ${rec.recommendations.length}条\n` +
+                `策略原因: ${rec.user_preferences.push_strategy_reason.join('、')}`
+            );
+        };
+
+        const loadRecommendConfig = async () => {
+            try {
+                const res = await api('/api/recommend/config');
+                Object.assign(recommendConfig, res);
+            } catch (e) { console.error(e); }
+        };
+
+        const saveRecommendConfig = async () => {
+            const params = new URLSearchParams();
+            params.append('min_quality_score', recommendConfig.min_quality_score);
+            params.append('max_recommend_count', recommendConfig.max_recommend_count);
+            params.append('enable_personalized', recommendConfig.enable_personalized);
+            await api(`/api/recommend/config?${params.toString()}`, 'POST');
+            alert('配置已保存');
+        };
+
+        const addBlockedWord = async () => {
+            if (!newBlockedWord.value) return;
+            await api(`/api/recommend/blocked-words?word=${encodeURIComponent(newBlockedWord.value)}`, 'POST');
+            recommendConfig.blocked_words.push(newBlockedWord.value);
+            newBlockedWord.value = '';
+        };
+
+        const removeBlockedWord = async (word) => {
+            if (!confirm(`确定要移除屏蔽词「${word}」吗？`)) return;
+            await api(`/api/recommend/blocked-words/${encodeURIComponent(word)}`, 'DELETE');
+            const idx = recommendConfig.blocked_words.indexOf(word);
+            if (idx > -1) recommendConfig.blocked_words.splice(idx, 1);
+        };
+
+        const toggleBlockedCategory = async (cat) => {
+            const idx = recommendConfig.blocked_categories.indexOf(cat);
+            if (idx > -1) {
+                await api(`/api/recommend/blocked-categories/${encodeURIComponent(cat)}`, 'DELETE');
+                recommendConfig.blocked_categories.splice(idx, 1);
+            } else {
+                await api(`/api/recommend/blocked-categories?category=${encodeURIComponent(cat)}`, 'POST');
+                recommendConfig.blocked_categories.push(cat);
+            }
+        };
+
+        const loadContentLibrary = async () => {
+            let url = '/api/content-library?page_size=50';
+            if (contentLibraryCategory.value) {
+                url += `&category=${encodeURIComponent(contentLibraryCategory.value)}`;
+            }
+            const res = await api(url);
+            contentLibrary.value = res.data || [];
+        };
+
+        const loadCategories = async () => {
+            try {
+                const res = await api('/api/content-categories');
+                allCategories.value = res.categories || [];
+            } catch (e) { console.error(e); }
+        };
+
+        const loadAttributionOverview = async () => {
+            try {
+                const res = await api('/api/attribution/overview');
+                Object.assign(attributionOverview, res);
+            } catch (e) { console.error(e); }
+        };
+
+        const loadDimensionAnalysis = async () => {
+            try {
+                const res = await api(`/api/attribution/by-dimension?dimension=${attributionDimension.value}`);
+                dimensionAnalysis.value = res.data || [];
+            } catch (e) { console.error(e); }
+        };
+
+        const loadRechurnReasons = async () => {
+            try {
+                const res = await api('/api/attribution/rechurn-reasons');
+                rechurnReasons.value = res.reasons || [];
+                nextTick(() => renderRechurnReasonChart());
+            } catch (e) { console.error(e); }
+        };
+
+        const loadOptimizationReport = async () => {
+            try {
+                const res = await api('/api/attribution/optimization-report');
+                Object.assign(optimizationReport, res);
+            } catch (e) { console.error(e); }
+        };
+
+        const loadAttributionTrend = async () => {
+            try {
+                const res = await api('/api/attribution/trend?days=14');
+                nextTick(() => renderTrendChart(res.trend || []));
+            } catch (e) { console.error(e); }
+        };
+
+        const generateMockAttribution = async () => {
+            if (!confirm('确定生成模拟召回效果数据吗？')) return;
+            const res = await api('/api/attribution/generate-mock-data?n_records=800', 'POST');
+            if (res.status === 'success') {
+                alert(`已生成 ${res.generated_count} 条模拟数据`);
+                await loadAttributionOverview();
+                await loadDimensionAnalysis();
+                await loadRechurnReasons();
+                await loadOptimizationReport();
+                await loadAttributionTrend();
+            }
+        };
+
+        const renderTrendChart = (trendData) => {
+            const el = document.getElementById('trendChart');
+            if (!el) return;
+            if (!trendChart) {
+                trendChart = echarts.init(el);
+            }
+            trendChart.setOption({
+                tooltip: { trigger: 'axis' },
+                legend: { data: ['复访率', '付费转化率', '再流失率'], bottom: 0 },
+                xAxis: {
+                    type: 'category',
+                    data: trendData.map(d => d.date.slice(5)),
+                },
+                yAxis: { type: 'value', max: 100 },
+                series: [
+                    { name: '复访率', type: 'line', data: trendData.map(d => d.revisit_rate), smooth: true, color: '#51cf66' },
+                    { name: '付费转化率', type: 'line', data: trendData.map(d => d.pay_conversion_rate), smooth: true, color: '#667eea' },
+                    { name: '再流失率', type: 'line', data: trendData.map(d => d.re_churn_rate), smooth: true, color: '#ff6b6b' },
+                ],
+            });
+        };
+
+        const renderRechurnReasonChart = () => {
+            const el = document.getElementById('rechurnReasonChart');
+            if (!el || !rechurnReasons.value.length) return;
+            if (!rechurnReasonChart) {
+                rechurnReasonChart = echarts.init(el);
+            }
+            const data = rechurnReasons.value.map(r => ({ name: r.reason, value: r.count }));
+            rechurnReasonChart.setOption({
+                tooltip: { trigger: 'item', formatter: '{b}: {c}人 ({d}%)' },
+                series: [{
+                    type: 'pie',
+                    radius: '60%',
+                    label: { show: true, formatter: '{b}\n{d}%' },
+                    data: data,
+                    color: ['#ff6b6b', '#ffd43b', '#4dabf7', '#69db7c', '#b197fc'],
+                }],
+            });
+        };
+
+        const loadAnnotations = async () => {
+            let url = '/api/annotations?page_size=20';
+            if (annotationFilter.type) {
+                url += `&annotation_type=${encodeURIComponent(annotationFilter.type)}`;
+            }
+            if (annotationFilter.used === 'used') {
+                url += '&is_used=true';
+            } else if (annotationFilter.used === 'unused') {
+                url += '&is_used=false';
+            }
+            const res = await api(url);
+            annotations.value = res.data || [];
+        };
+
+        const loadAnnotationTypes = async () => {
+            try {
+                const res = await api('/api/annotations/types');
+                annotationTypes.value = res.types || [];
+            } catch (e) { console.error(e); }
+        };
+
+        const loadAnnotationStats = async () => {
+            try {
+                const res = await api('/api/annotations/stats');
+                Object.assign(annotationStats, res);
+            } catch (e) { console.error(e); }
+        };
+
+        const addAnnotation = async () => {
+            if (!newAnnotation.user_id || !newAnnotation.label) {
+                alert('请填写用户ID和标签');
+                return;
+            }
+            let url = `/api/annotations?user_id=${encodeURIComponent(newAnnotation.user_id)}`;
+            url += `&annotation_type=${encodeURIComponent(newAnnotation.type)}`;
+            url += `&label=${encodeURIComponent(newAnnotation.label)}`;
+            if (newAnnotation.note) {
+                url += `&note=${encodeURIComponent(newAnnotation.note)}`;
+            }
+            const res = await api(url, 'POST');
+            if (res.status === 'success') {
+                alert('标注添加成功');
+                newAnnotation.user_id = '';
+                newAnnotation.label = '';
+                newAnnotation.note = '';
+                await loadAnnotations();
+                await loadAnnotationStats();
+            }
+        };
+
+        const deleteAnnotation = async (id) => {
+            if (!confirm('确定删除该标注吗？')) return;
+            await api(`/api/annotations/${id}`, 'DELETE');
+            await loadAnnotations();
+            await loadAnnotationStats();
+        };
+
+        const loadWhitelist = async () => {
+            const res = await api('/api/whitelist?page_size=20');
+            whitelist.value = res.data || [];
+        };
+
+        const loadWhitelistStats = async () => {
+            try {
+                const res = await api('/api/whitelist/stats');
+                Object.assign(whitelistStats, res);
+            } catch (e) { console.error(e); }
+        };
+
+        const addWhitelist = async () => {
+            if (!newWhitelistUserId.value) {
+                alert('请填写用户ID');
+                return;
+            }
+            let url = `/api/whitelist?user_id=${encodeURIComponent(newWhitelistUserId.value)}`;
+            if (newWhitelistReason.value) {
+                url += `&reason=${encodeURIComponent(newWhitelistReason.value)}`;
+            }
+            const res = await api(url, 'POST');
+            if (res.status === 'success') {
+                alert('添加白名单成功');
+                newWhitelistUserId.value = '';
+                newWhitelistReason.value = '';
+                await loadWhitelist();
+                await loadWhitelistStats();
+            }
+        };
+
+        const removeWhitelist = async (userId) => {
+            if (!confirm('确定从白名单中移除该用户吗？')) return;
+            await api(`/api/whitelist/${userId}`, 'DELETE');
+            await loadWhitelist();
+            await loadWhitelistStats();
+        };
+
+        const runIncrementalUpdate = async () => {
+            if (!confirm('确定执行模型增量更新吗？将使用标注数据更新模型。')) return;
+            const res = await api('/api/model/incremental-update', 'POST');
+            incrementalResult.value = res;
+            if (res.success) {
+                await loadUpdateHistory();
+                await loadAnnotationStats();
+            }
+        };
+
+        const loadUpdateHistory = async () => {
+            const res = await api('/api/model/update-history?page_size=10');
+            updateHistory.value = res.data || [];
+        };
+
         onMounted(async () => {
             await loadSystemStatus();
             if (sysInfo.initialized) {
@@ -936,6 +1659,20 @@ createApp({
                 await loadChurnStats();
                 await loadClusters();
                 await loadABExperiments();
+                await loadRecommendConfig();
+                await loadCategories();
+                await loadContentLibrary();
+                await loadAttributionOverview();
+                await loadDimensionAnalysis();
+                await loadRechurnReasons();
+                await loadOptimizationReport();
+                await loadAttributionTrend();
+                await loadAnnotations();
+                await loadAnnotationTypes();
+                await loadAnnotationStats();
+                await loadWhitelist();
+                await loadWhitelistStats();
+                await loadUpdateHistory();
             }
         });
 
@@ -945,9 +1682,28 @@ createApp({
             clusters, recallPlans, recallTopN, recallRiskFilter,
             showDetail, userDetail, recallPlan,
             abExperiments, abResults,
+            recommendCount, recommendRiskFilter, recommendResults,
+            recommendConfig, newBlockedWord, allCategories,
+            contentLibrary, contentLibraryCategory,
+            attributionOverview, attributionDimension, dimensionAnalysis,
+            rechurnReasons, optimizationReport,
+            annotations, annotationTypes, annotationStats, annotationFilter, newAnnotation,
+            whitelist, whitelistStats, newWhitelistUserId, newWhitelistReason,
+            incrementalResult, updateHistory,
             initSystem, loadUsers, showUserDetail, loadClusters,
             generateBatchRecall, startExperiment, stopExperiment,
-            getVariantRate, getRiskClass, getTop3Features, getClusterStrategy
+            getVariantRate, getRiskClass, getTop3Features, getClusterStrategy,
+            generateBatchRecommend, showRecommendDetail,
+            loadRecommendConfig, saveRecommendConfig,
+            addBlockedWord, removeBlockedWord, toggleBlockedCategory,
+            loadContentLibrary, loadCategories,
+            loadAttributionOverview, loadDimensionAnalysis,
+            loadRechurnReasons, loadOptimizationReport,
+            loadAttributionTrend, generateMockAttribution,
+            loadAnnotations, loadAnnotationTypes, loadAnnotationStats,
+            addAnnotation, deleteAnnotation,
+            loadWhitelist, loadWhitelistStats, addWhitelist, removeWhitelist,
+            runIncrementalUpdate, loadUpdateHistory,
         };
     }
 }).mount('#app');

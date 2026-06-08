@@ -16,6 +16,14 @@ from src.models.churn_predictor import ChurnPredictor
 from src.models.user_clustering import UserClustering, CLUSTER_NAMES
 from src.models.recall_engine import RecallStrategyEngine
 from src.models.ab_experiment import ABExperimentManager, create_default_experiments
+from src.models.content_recommender import PersonalizedContentRecommender
+from src.models.recall_attribution import AttributionAnalyzer
+from src.models.model_iteration import (
+    AnnotationManager,
+    StrategyWhitelistManager,
+    IncrementalModelUpdater,
+    ANNOTATION_TYPES,
+)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 MODEL_DIR = os.path.join(BASE_DIR, "models")
@@ -43,6 +51,11 @@ class SystemState:
         self.clustering_model = None
         self.recall_engine = None
         self.ab_manager = None
+        self.content_recommender = None
+        self.attribution_analyzer = None
+        self.annotation_manager = None
+        self.whitelist_manager = None
+        self.model_updater = None
         self.features_df = None
         self.initialized = False
 
@@ -70,6 +83,11 @@ def load_system():
     state.clustering_model = UserClustering.load(os.path.join(MODEL_DIR, "clustering_model.pkl"))
     state.recall_engine = RecallStrategyEngine()
     state.ab_manager = create_default_experiments()
+    state.content_recommender = PersonalizedContentRecommender()
+    state.attribution_analyzer = AttributionAnalyzer()
+    state.annotation_manager = AnnotationManager()
+    state.whitelist_manager = StrategyWhitelistManager()
+    state.model_updater = IncrementalModelUpdater()
     users, behaviors, labels = load_raw_data()
     state.features_df = build_user_features(users, behaviors, labels)
     X, _ = get_feature_matrix(state.features_df)
@@ -121,6 +139,7 @@ def system_status():
         "churn_model_type": state.churn_model.model_type if state.churn_model else None,
         "n_clusters": state.clustering_model.n_clusters if state.clustering_model else 0,
         "ab_experiments": len(state.ab_manager.list_experiments()) if state.ab_manager else 0,
+        "content_library_size": len(state.content_recommender.content_library.contents) if state.content_recommender else 0,
     }
 
 
@@ -349,6 +368,264 @@ def record_exp_metric(exp_id: str, variant_id: str, metric_name: str, value: int
     if state.ab_manager.record_metric(exp_id, variant_id, metric_name, value):
         return {"status": "recorded"}
     raise HTTPException(status_code=404, detail="实验不存在")
+
+
+# ==================== 内容推荐相关接口 ====================
+
+@app.get("/api/recommend/{user_id}")
+def get_personalized_recommendation(user_id: str, count: int = 5):
+    ensure_initialized()
+    df = state.features_df[state.features_df["user_id"] == user_id]
+    if len(df) == 0:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    row = df.iloc[0]
+    user_profile = row.to_dict()
+    churn_info = {
+        "churn_prob": float(row["churn_prob_30d"]),
+        "risk_level": row["risk_level"],
+        "churn_reason": row["churn_reason"],
+    }
+    result = state.content_recommender.recommend(user_profile, churn_info, count)
+    return result
+
+
+@app.post("/api/recommend/batch")
+def batch_recommend(top_n: int = 100, risk_filter: str = None, count: int = 5):
+    ensure_initialized()
+    risk_list = None
+    if risk_filter:
+        risk_list = [r.strip() for r in risk_filter.split(",")]
+    df = state.features_df.copy()
+    if risk_list:
+        df = df[df["risk_level"].isin(risk_list)]
+    df = df.head(top_n)
+    results = state.content_recommender.batch_recommend(df, count=count)
+    return {
+        "count": len(results),
+        "recommendations": results,
+    }
+
+
+@app.get("/api/recommend/config")
+def get_recommend_config():
+    ensure_initialized()
+    return state.content_recommender.get_config()
+
+
+@app.post("/api/recommend/config")
+def update_recommend_config(
+    min_quality_score: float = None,
+    max_recommend_count: int = None,
+    enable_personalized: bool = None,
+):
+    ensure_initialized()
+    kwargs = {}
+    if min_quality_score is not None:
+        kwargs["min_quality_score"] = min_quality_score
+    if max_recommend_count is not None:
+        kwargs["max_recommend_count"] = max_recommend_count
+    if enable_personalized is not None:
+        kwargs["enable_personalized"] = enable_personalized
+    return state.content_recommender.update_config(**kwargs)
+
+
+@app.post("/api/recommend/blocked-words")
+def add_blocked_word(word: str):
+    ensure_initialized()
+    success = state.content_recommender.add_blocked_word(word)
+    return {"success": success, "word": word}
+
+
+@app.delete("/api/recommend/blocked-words/{word}")
+def remove_blocked_word(word: str):
+    ensure_initialized()
+    success = state.content_recommender.remove_blocked_word(word)
+    return {"success": success, "word": word}
+
+
+@app.post("/api/recommend/blocked-categories")
+def add_blocked_category(category: str):
+    ensure_initialized()
+    success = state.content_recommender.add_blocked_category(category)
+    return {"success": success, "category": category}
+
+
+@app.delete("/api/recommend/blocked-categories/{category}")
+def remove_blocked_category(category: str):
+    ensure_initialized()
+    success = state.content_recommender.remove_blocked_category(category)
+    return {"success": success, "category": category}
+
+
+@app.get("/api/content-library")
+def get_content_library(category: str = None, page: int = 1, page_size: int = 20):
+    ensure_initialized()
+    return state.content_recommender.get_content_library(category, page, page_size)
+
+
+@app.get("/api/content-categories")
+def get_content_categories():
+    ensure_initialized()
+    return {"categories": state.content_recommender.get_categories()}
+
+
+# ==================== 召回效果归因分析接口 ====================
+
+@app.get("/api/attribution/overview")
+def get_attribution_overview():
+    ensure_initialized()
+    return state.attribution_analyzer.get_overall_stats()
+
+
+@app.get("/api/attribution/by-dimension")
+def get_attribution_by_dimension(dimension: str):
+    ensure_initialized()
+    valid_dimensions = ["risk_level", "cluster_name", "push_channel", "content_type", "churn_reason"]
+    if dimension not in valid_dimensions:
+        raise HTTPException(status_code=400, detail=f"无效维度，支持的维度: {valid_dimensions}")
+    results = state.attribution_analyzer.analyze_by_dimension(dimension)
+    return {"dimension": dimension, "data": results}
+
+
+@app.get("/api/attribution/rechurn-reasons")
+def get_rechurn_reasons():
+    ensure_initialized()
+    return {"reasons": state.attribution_analyzer.analyze_rechurn_reasons()}
+
+
+@app.get("/api/attribution/optimization-report")
+def get_optimization_report():
+    ensure_initialized()
+    return state.attribution_analyzer.generate_optimization_report()
+
+
+@app.get("/api/attribution/trend")
+def get_attribution_trend(days: int = 14):
+    ensure_initialized()
+    return {"trend": state.attribution_analyzer.get_trend_data(days)}
+
+
+@app.post("/api/attribution/generate-mock-data")
+def generate_mock_attribution_data(n_records: int = 500):
+    ensure_initialized()
+    records = state.attribution_analyzer.data_store.generate_mock_data(state.features_df, n_records)
+    return {
+        "status": "success",
+        "generated_count": len(records),
+    }
+
+
+# ==================== 模型迭代辅助接口 ====================
+
+@app.get("/api/annotations")
+def list_annotations(
+    annotation_type: str = None,
+    is_used: bool = None,
+    page: int = 1,
+    page_size: int = 20,
+):
+    ensure_initialized()
+    return state.annotation_manager.list_annotations(annotation_type, is_used, page, page_size)
+
+
+@app.post("/api/annotations")
+def add_annotation(
+    user_id: str,
+    annotation_type: str,
+    label: str,
+    note: str = "",
+    operator: str = "system",
+):
+    ensure_initialized()
+    try:
+        ann = state.annotation_manager.add_annotation(
+            user_id, annotation_type, label, note, operator
+        )
+        return {"status": "success", "annotation": ann.to_dict()}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/annotations/{annotation_id}")
+def delete_annotation(annotation_id: str):
+    ensure_initialized()
+    success = state.annotation_manager.delete_annotation(annotation_id)
+    return {"success": success}
+
+
+@app.get("/api/annotations/types")
+def get_annotation_types():
+    ensure_initialized()
+    return {"types": state.annotation_manager.get_annotation_types()}
+
+
+@app.get("/api/annotations/stats")
+def get_annotation_stats():
+    ensure_initialized()
+    return state.annotation_manager.get_stats()
+
+
+@app.get("/api/whitelist")
+def list_whitelist(active_only: bool = True, page: int = 1, page_size: int = 20):
+    ensure_initialized()
+    return state.whitelist_manager.list_whitelist(active_only, page, page_size)
+
+
+@app.post("/api/whitelist")
+def add_to_whitelist(
+    user_id: str,
+    reason: str = "",
+    operator: str = "system",
+):
+    ensure_initialized()
+    record = state.whitelist_manager.add_to_whitelist(user_id, reason, operator)
+    return {"status": "success", "whitelist_item": record.to_dict()}
+
+
+@app.delete("/api/whitelist/{user_id}")
+def remove_from_whitelist(user_id: str):
+    ensure_initialized()
+    success = state.whitelist_manager.remove_from_whitelist(user_id)
+    return {"success": success}
+
+
+@app.get("/api/whitelist/{user_id}")
+def get_whitelist_user(user_id: str):
+    ensure_initialized()
+    record = state.whitelist_manager.get_whitelist_record(user_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="用户不在白名单中")
+    return record
+
+
+@app.post("/api/whitelist/{user_id}/strategy")
+def update_whitelist_strategy(user_id: str, custom_strategy: dict):
+    ensure_initialized()
+    success = state.whitelist_manager.update_custom_strategy(user_id, custom_strategy)
+    if not success:
+        raise HTTPException(status_code=404, detail="用户不在白名单中")
+    return {"success": True}
+
+
+@app.get("/api/whitelist/stats")
+def get_whitelist_stats():
+    ensure_initialized()
+    return state.whitelist_manager.get_stats()
+
+
+@app.post("/api/model/incremental-update")
+def incremental_model_update():
+    ensure_initialized()
+    result = state.model_updater.incremental_update(state.features_df)
+    if result["success"]:
+        state.churn_model = ChurnPredictor.load(os.path.join(MODEL_DIR, "churn_model.pkl"))
+    return result
+
+
+@app.get("/api/model/update-history")
+def get_model_update_history(page: int = 1, page_size: int = 20):
+    ensure_initialized()
+    return state.model_updater.get_update_history(page, page_size)
 
 
 if os.path.exists(STATIC_DIR):

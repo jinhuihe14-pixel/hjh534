@@ -1,0 +1,24 @@
+[
+  {
+    "annotation_id": "7f2d517e-c36",
+    "user_id": "test_001",
+    "annotation_type": "churn_prediction_error",
+    "label": "false_positive",
+    "note": "测试标注",
+    "operator": "system",
+    "create_time": "2026-06-08T12:48:21.074861",
+    "is_used_for_training": false,
+    "use_time": null
+  },
+  {
+    "annotation_id": "e4512b47-d92",
+    "user_id": "test_001",
+    "annotation_type": "churn_prediction_error",
+    "label": "false_positive",
+    "note": "测试标注",
+    "operator": "system",
+    "create_time": "2026-06-08T12:52:56.757970",
+    "is_used_for_training": false,
+    "use_time": null
+  }
+]

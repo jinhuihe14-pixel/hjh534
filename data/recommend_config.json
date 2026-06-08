@@ -1,0 +1,16 @@
+{
+  "blocked_words": [
+    "广告",
+    "推广",
+    "诈骗",
+    "虚假",
+    "低俗",
+    "暴力",
+    "色情",
+    "赌博"
+  ],
+  "blocked_categories": [],
+  "min_quality_score": 0.5,
+  "max_recommend_count": 5,
+  "enable_personalized": true
+}
